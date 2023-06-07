@@ -2,7 +2,8 @@
 
 use caliptra_builder::{FwId, ImageOptions, APP_WITH_UART, FMC_WITH_UART, ROM_WITH_UART};
 use caliptra_hw_model::{BootParams, DefaultHwModel, HwModel, InitParams, ModelError, ShaAccMode};
-use caliptra_runtime::{CommandId, EcdsaVerifyCmd};
+use caliptra_runtime::{CommandId, EcdsaVerifyCmd, InvokeDpeCmd};
+use dpe::commands::{Command, CommandHdr};
 use openssl::x509::X509;
 use zerocopy::AsBytes;
 
@@ -169,6 +170,24 @@ fn test_verify_cmd() {
 }
 
 #[test]
+fn test_invoke_dpe_get_profile_cmd() {
+    let mut model = run_rom_test("mbox");
+
+    model.step_until(|m| m.soc_mbox().status().read().mbox_fsm_ps().mbox_idle());
+
+    let mut data = [0u8; 4096];
+    let cmd_hdr = CommandHdr::new_for_test(Command::GetProfile);
+    let cmd_hdr_buf = cmd_hdr.as_bytes();
+    data[..cmd_hdr_buf.len()].copy_from_slice(&cmd_hdr_buf[..]);
+    let cmd = InvokeDpeCmd { chksum: 0, data };
+
+    let resp = model
+        .mailbox_execute(u32::from(CommandId::INVOKE_DPE), cmd.as_bytes())
+        .unwrap();
+    assert!(resp.is_some());
+}
+
+#[test]
 fn test_unimplemented_cmds() {
     let mut model = run_rom_test("mbox");
 
@@ -185,8 +204,5 @@ fn test_unimplemented_cmds() {
     assert_eq!(resp, expected_err);
 
     resp = model.mailbox_execute(u32::from(CommandId::STASH_MEASUREMENT), &cmd);
-    assert_eq!(resp, expected_err);
-
-    resp = model.mailbox_execute(u32::from(CommandId::INVOKE_DPE), &cmd);
     assert_eq!(resp, expected_err);
 }

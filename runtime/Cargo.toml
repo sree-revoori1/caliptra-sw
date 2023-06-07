@@ -12,6 +12,7 @@ caliptra-registers = { path = "../registers" }
 caliptra_common = { path = "../common", default-features = false }
 caliptra-x509 = { path = "../x509", default-features = false }
 crypto = { path = "dpe/crypto" }
+dpe = { path = "dpe/dpe", default-features = false, features = ["dpe_profile_p384_sha384"] }
 platform = { path = "dpe/platform" }
 ufmt = "0.2.0"
 zerocopy = "0.6.1"
