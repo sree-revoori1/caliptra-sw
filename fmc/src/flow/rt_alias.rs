@@ -206,7 +206,7 @@ impl RtAliasLayer {
     /// # Returns
     ///
     /// * `Ecc384KeyPair` - Derive DICE Layer Key Pair
-    fn derive_key_pair(
+    pub fn derive_key_pair(
         env: &mut FmcEnv,
         cdi: KeyId,
         priv_key: KeyId,

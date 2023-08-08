@@ -3,6 +3,7 @@
 #![no_std]
 
 pub mod dice;
+mod disable;
 pub mod fips;
 pub mod info;
 mod update;
@@ -21,6 +22,7 @@ pub use mailbox_api::{
 
 #[cfg(feature = "test_only_commands")]
 pub use dice::{GetLdevCertCmd, TestGetFmcAliasCertCmd};
+pub use disable::DisableAttestationCmd;
 pub use fips::{FipsSelfTestCmd, FipsShutdownCmd, FipsVersionCmd};
 pub use info::FwInfoCmd;
 pub use verify::EcdsaVerifyCmd;
@@ -33,12 +35,12 @@ use caliptra_common::memory_layout::{
     PCR_LOG_SIZE,
 };
 use caliptra_common::{cprintln, FirmwareHandoffTable};
-use caliptra_drivers::{CaliptraError, CaliptraResult, DataVault, Ecc384, SocIfc};
+use caliptra_drivers::{CaliptraError, CaliptraResult, DataVault, Ecc384, KeyVault, SocIfc};
 use caliptra_drivers::{Hmac384, Sha256, Sha384, Sha384Acc, Trng};
 use caliptra_image_types::ImageManifest;
 use caliptra_registers::mbox::enums::MboxStatusE;
 use caliptra_registers::{
-    csrng::CsrngReg, dv::DvReg, ecc::EccReg, entropy_src::EntropySrcReg, hmac::HmacReg,
+    csrng::CsrngReg, dv::DvReg, ecc::EccReg, entropy_src::EntropySrcReg, hmac::HmacReg, kv::KvReg,
     mbox::MboxCsr, sha256::Sha256Reg, sha512::Sha512Reg, sha512_acc::Sha512AccCsr,
     soc_ifc::SocIfcReg, soc_ifc_trng::SocIfcTrngReg,
 };
@@ -70,6 +72,7 @@ pub struct Drivers<'a> {
     pub ecdsa: Ecc384,
     pub hmac: Hmac384,
     pub data_vault: DataVault,
+    pub key_vault: KeyVault,
     pub soc_ifc: SocIfc,
     pub regions: MemoryRegions,
     pub sha256: Sha256,
@@ -120,6 +123,7 @@ impl<'a> Drivers<'a> {
             ecdsa: Ecc384::new(EccReg::new()),
             hmac: Hmac384::new(HmacReg::new()),
             data_vault: DataVault::new(DvReg::new()),
+            key_vault: KeyVault::new(KvReg::new()),
             soc_ifc: SocIfc::new(SocIfcReg::new()),
             regions: MemoryRegions::new(),
             sha256: Sha256::new(Sha256Reg::new()),
@@ -173,6 +177,7 @@ fn handle_command(drivers: &mut Drivers) -> CaliptraResult<MboxStatusE> {
         CommandId::ECDSA384_VERIFY => EcdsaVerifyCmd::execute(drivers, cmd_bytes),
         CommandId::STASH_MEASUREMENT => Err(CaliptraError::RUNTIME_UNIMPLEMENTED_COMMAND),
         CommandId::INVOKE_DPE => Err(CaliptraError::RUNTIME_UNIMPLEMENTED_COMMAND),
+        CommandId::DISABLE_ATTESTATION => DisableAttestationCmd::execute(drivers),
         CommandId::FW_INFO => FwInfoCmd::execute(drivers),
         #[cfg(feature = "test_only_commands")]
         CommandId::TEST_ONLY_GET_LDEV_CERT => GetLdevCertCmd::execute(&drivers.data_vault),

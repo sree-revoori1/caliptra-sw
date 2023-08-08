@@ -128,6 +128,39 @@ fn test_fw_info() {
 }
 
 #[test]
+fn test_disable_attestation_cmd() {
+    let mut model = run_rt_test(None);
+
+    let payload = MailboxReqHeader {
+        chksum: caliptra_common::checksum::calc_checksum(
+            u32::from(CommandId::DISABLE_ATTESTATION),
+            &[],
+        ),
+    };
+
+    let resp = model
+        .mailbox_execute(
+            u32::from(CommandId::DISABLE_ATTESTATION),
+            payload.as_bytes(),
+        )
+        .unwrap()
+        .unwrap();
+
+    let resp_hdr: &MailboxRespHeader =
+        LayoutVerified::<&[u8], MailboxRespHeader>::new(resp.as_bytes())
+            .unwrap()
+            .into_ref();
+
+    assert_eq!(
+        resp_hdr.fips_status,
+        MailboxRespHeader::FIPS_STATUS_APPROVED
+    );
+    // Checksum is just going to be 0 because FIPS_STATUS_APPROVED is 0
+    assert_eq!(resp_hdr.chksum, 0);
+    assert_eq!(model.soc_ifc().cptra_fw_error_non_fatal().read(), 0);
+}
+
+#[test]
 fn test_ecdsa_verify_cmd() {
     let mut model = run_rom_test("mbox");
 
