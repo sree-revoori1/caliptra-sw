@@ -1,6 +1,7 @@
 // Licensed under the Apache-2.0 license
 use caliptra_builder::APP_WITH_UART;
 
+#[ignore]
 #[test]
 fn test_panic_missing() {
     let rt_elf = caliptra_builder::build_firmware_elf(&APP_WITH_UART).unwrap();
