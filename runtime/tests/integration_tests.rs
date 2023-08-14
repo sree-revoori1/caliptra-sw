@@ -1,14 +1,22 @@
 // Licensed under the Apache-2.0 license.
 pub mod common;
 
+use std::mem::size_of;
+
 use caliptra_builder::{ImageOptions, APP_WITH_UART, FMC_WITH_UART};
 use caliptra_drivers::Ecc384PubKey;
 use caliptra_hw_model::{HwModel, ModelError, ShaAccMode};
 use caliptra_runtime::{
-    CommandId, EcdsaVerifyReq, FipsVersionCmd, FipsVersionResp, FwInfoResp, MailboxReqHeader,
-    MailboxRespHeader, RtBootStatus,
+    CommandId, EcdsaVerifyReq, FipsVersionCmd, FipsVersionResp, FwInfoResp, InvokeDpeReq,
+    InvokeDpeResp, MailboxReqHeader, MailboxRespHeader, RtBootStatus, DPE_SUPPORT, VENDOR_ID,
+    VENDOR_SKU,
 };
 use common::{run_rom_test, run_rt_test};
+use dpe::{
+    commands::{Command, CommandHdr},
+    response::GetProfileResp,
+    DPE_PROFILE,
+};
 use openssl::{
     bn::BigNum,
     ec::{EcGroup, EcKey},
@@ -130,6 +138,57 @@ fn test_fw_info() {
     );
     // Verify FW info
     assert_eq!(info.pl0_pauser, 0xFFFF0000);
+}
+
+#[test]
+fn test_invoke_dpe_get_profile_cmd() {
+    let mut model = run_rom_test("mbox");
+
+    model.step_until(|m| {
+        m.soc_mbox().status().read().mbox_fsm_ps().mbox_idle()
+            && m.soc_ifc().cptra_boot_status().read() == 1
+    });
+
+    let mut data = [0u8; InvokeDpeReq::DATA_MAX_SIZE];
+    let cmd_hdr = CommandHdr::new_for_test(Command::GetProfile);
+    let cmd_hdr_buf = cmd_hdr.as_bytes();
+    data[..cmd_hdr_buf.len()].copy_from_slice(cmd_hdr_buf);
+    let cmd = InvokeDpeReq {
+        hdr: MailboxReqHeader { chksum: 0 },
+        data,
+        data_size: cmd_hdr_buf.len() as u32,
+    };
+
+    let checksum = caliptra_common::checksum::calc_checksum(
+        u32::from(CommandId::INVOKE_DPE),
+        &cmd.as_bytes()[4..],
+    );
+
+    let cmd = InvokeDpeReq {
+        hdr: MailboxReqHeader { chksum: checksum },
+        ..cmd
+    };
+
+    let resp = model
+        .mailbox_execute(u32::from(CommandId::INVOKE_DPE), cmd.as_bytes())
+        .unwrap()
+        .expect("We should have received a response");
+
+    let resp_hdr: &InvokeDpeResp = LayoutVerified::<&[u8], InvokeDpeResp>::new(resp.as_bytes())
+        .unwrap()
+        .into_ref();
+
+    assert_eq!(resp_hdr.data_size as usize, size_of::<GetProfileResp>());
+    let data = resp_hdr.data;
+    // check dpe profile
+    assert_eq!(data[8..12], (DPE_PROFILE as u32).to_le_bytes());
+    // check vendor id
+    assert_eq!(&data[16..20], VENDOR_ID.to_le_bytes());
+    // check vendor sku
+    assert_eq!(data[20..24], VENDOR_SKU.to_le_bytes());
+    // check flags
+    assert_eq!(data[28..32], DPE_SUPPORT.get_flags().to_le_bytes());
+    assert_eq!(model.soc_ifc().cptra_fw_error_non_fatal().read(), 0);
 }
 
 #[test]

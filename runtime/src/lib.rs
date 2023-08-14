@@ -7,6 +7,7 @@ mod dpe_crypto;
 mod dpe_platform;
 pub mod fips;
 pub mod info;
+mod invoke_dpe;
 mod update;
 mod verify;
 
@@ -22,12 +23,13 @@ pub use mailbox_api::{
 };
 
 use dpe_crypto::DpeCrypto;
-use dpe_platform::DpePlatform;
+pub use dpe_platform::{DpePlatform, VENDOR_ID, VENDOR_SKU};
 
 #[cfg(feature = "test_only_commands")]
 pub use dice::{GetLdevCertCmd, TestGetFmcAliasCertCmd};
 pub use fips::{FipsSelfTestCmd, FipsShutdownCmd, FipsVersionCmd};
 pub use info::FwInfoCmd;
+pub use invoke_dpe::InvokeDpeCmd;
 pub use verify::EcdsaVerifyCmd;
 pub mod packet;
 use packet::Packet;
@@ -39,17 +41,20 @@ use caliptra_common::memory_layout::{
 };
 use caliptra_common::{cprintln, FirmwareHandoffTable};
 use caliptra_drivers::{CaliptraError, CaliptraResult, DataVault, Ecc384, SocIfc};
-use caliptra_drivers::{Hmac384, Sha256, Sha384, Sha384Acc, Trng};
+use caliptra_drivers::{Hmac384, PcrBank, PcrId, Sha256, Sha384, Sha384Acc, Trng};
 use caliptra_image_types::ImageManifest;
 use caliptra_registers::mbox::enums::MboxStatusE;
 use caliptra_registers::{
     csrng::CsrngReg, dv::DvReg, ecc::EccReg, entropy_src::EntropySrcReg, hmac::HmacReg,
-    mbox::MboxCsr, sha256::Sha256Reg, sha512::Sha512Reg, sha512_acc::Sha512AccCsr,
+    mbox::MboxCsr, pv::PvReg, sha256::Sha256Reg, sha512::Sha512Reg, sha512_acc::Sha512AccCsr,
     soc_ifc::SocIfcReg, soc_ifc_trng::SocIfcTrngReg,
 };
 use dpe::{
+    commands::{CommandExecution, DeriveChildCmd},
+    context::ContextHandle,
     dpe_instance::{DpeEnv, DpeInstance, DpeTypes},
     support::Support,
+    DPE_PROFILE,
 };
 use zerocopy::{AsBytes, FromBytes};
 
@@ -118,6 +123,8 @@ pub struct Drivers<'a> {
     pub manifest: ImageManifest,
 
     pub dpe: DpeInstance,
+
+    pub pcr_bank: PcrBank,
 }
 
 pub struct CptraDpeTypes;
@@ -153,8 +160,24 @@ impl<'a> Drivers<'a> {
             crypto: DpeCrypto::new(&mut sha384),
             platform: DpePlatform,
         };
-        let dpe = DpeInstance::new(&mut env, DPE_SUPPORT)
+        let mut dpe = DpeInstance::new(&mut env, DPE_SUPPORT)
             .map_err(|_| CaliptraError::RUNTIME_INVOKE_DPE_FAILED)?;
+        let pcr_bank = PcrBank::new(PvReg::new());
+        // TODO: Set target_locality to SoC's initial locality
+        const TARGET_LOCALITY: u32 = 0;
+        let data = <[u8; DPE_PROFILE.get_hash_size()]>::from(&pcr_bank.read_pcr(PcrId::PcrId1));
+        DeriveChildCmd {
+            handle: ContextHandle::default(),
+            data,
+            flags: DeriveChildCmd::MAKE_DEFAULT
+                | DeriveChildCmd::CHANGE_LOCALITY
+                | DeriveChildCmd::INPUT_ALLOW_CA
+                | DeriveChildCmd::INPUT_ALLOW_X509,
+            tci_type: u32::from_be_bytes(*b"RTJM"),
+            target_locality: TARGET_LOCALITY,
+        }
+        .execute(&mut dpe, &mut env, DPE_LOCALITY)
+        .unwrap();
 
         Ok(Self {
             mbox: Mailbox::new(MboxCsr::new()),
@@ -171,6 +194,7 @@ impl<'a> Drivers<'a> {
             fht,
             manifest,
             dpe,
+            pcr_bank,
         })
     }
 }
@@ -211,7 +235,18 @@ fn handle_command(drivers: &mut Drivers) -> CaliptraResult<MboxStatusE> {
         CommandId::FIRMWARE_LOAD => Err(CaliptraError::RUNTIME_UNIMPLEMENTED_COMMAND),
         CommandId::GET_IDEV_CSR => Err(CaliptraError::RUNTIME_UNIMPLEMENTED_COMMAND),
         CommandId::GET_LDEV_CERT => Err(CaliptraError::RUNTIME_UNIMPLEMENTED_COMMAND),
-        CommandId::INVOKE_DPE => Err(CaliptraError::RUNTIME_UNIMPLEMENTED_COMMAND),
+        CommandId::INVOKE_DPE => {
+            let resp = InvokeDpeCmd::execute(drivers, cmd_bytes)?;
+            match resp {
+                MailboxResp::InvokeDpeCommand(InvokeDpeResp {
+                    data_size, data, ..
+                }) => {
+                    drivers.mbox.write_response(&data[..data_size as usize])?;
+                    Ok(resp)
+                }
+                _ => Err(CaliptraError::RUNTIME_INVOKE_DPE_FAILED),
+            }
+        }
         CommandId::ECDSA384_VERIFY => EcdsaVerifyCmd::execute(drivers, cmd_bytes),
         CommandId::STASH_MEASUREMENT => Err(CaliptraError::RUNTIME_UNIMPLEMENTED_COMMAND),
         CommandId::FW_INFO => FwInfoCmd::execute(drivers),
