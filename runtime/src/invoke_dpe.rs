@@ -13,7 +13,7 @@ impl InvokeDpeCmd {
         if let Some(cmd) = InvokeDpeReq::read_from(cmd_args) {
             let mut response_buf = [0u8; InvokeDpeResp::DATA_MAX_SIZE];
             let mut env = DpeEnv::<CptraDpeTypes> {
-                crypto: DpeCrypto::new(&mut drivers.sha384),
+                crypto: DpeCrypto::new(&mut drivers.sha384, &mut drivers.trng),
                 platform: DpePlatform,
             };
             match drivers

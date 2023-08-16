@@ -7,8 +7,8 @@ use caliptra_drivers::Ecc384PubKey;
 use caliptra_hw_model::{HwModel, ModelError, ShaAccMode};
 use caliptra_runtime::{
     CommandId, EcdsaVerifyReq, FipsVersionCmd, FipsVersionResp, FwInfoResp, InvokeDpeReq,
-    InvokeDpeResp, MailboxReqHeader, MailboxRespHeader, RtBootStatus, DPE_SUPPORT, VENDOR_ID,
-    VENDOR_SKU,
+    InvokeDpeResp, MailboxReqHeader, MailboxRespHeader, RtBootStatus, StashMeasurementReq,
+    StashMeasurementResp, DPE_SUPPORT, VENDOR_ID, VENDOR_SKU,
 };
 use common::{run_rom_test, run_rt_test};
 use dpe::{
@@ -144,6 +144,44 @@ fn test_fw_info() {
     );
     // Verify FW info
     assert_eq!(info.pl0_pauser, 0xFFFF0000);
+}
+
+#[test]
+fn test_stash_measurement() {
+    let mut model = run_rt_test(None);
+
+    model.step_until(|m| {
+        m.soc_ifc().cptra_boot_status().read() == RtBootStatus::RtReadyForCommands.into()
+    });
+
+    let cmd = StashMeasurementReq {
+        hdr: MailboxReqHeader { chksum: 0 },
+        metadata: [0u8; 4],
+        measurement: [0u8; 48],
+        svn: 0,
+    };
+
+    let checksum = caliptra_common::checksum::calc_checksum(
+        u32::from(CommandId::STASH_MEASUREMENT),
+        &cmd.as_bytes()[4..],
+    );
+
+    let cmd = StashMeasurementReq {
+        hdr: MailboxReqHeader { chksum: checksum },
+        ..cmd
+    };
+
+    let resp = model
+        .mailbox_execute(u32::from(CommandId::STASH_MEASUREMENT), cmd.as_bytes())
+        .unwrap()
+        .expect("We should have received a response");
+
+    let resp_hdr: &StashMeasurementResp =
+        LayoutVerified::<&[u8], StashMeasurementResp>::new(resp.as_bytes())
+            .unwrap()
+            .into_ref();
+
+    assert_eq!(resp_hdr.dpe_result, 0);
 }
 
 #[test]

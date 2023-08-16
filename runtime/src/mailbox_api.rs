@@ -106,6 +106,7 @@ impl MailboxResp {
     pub fn write_to_mbox(&mut self, drivers: &mut Drivers) -> CaliptraResult<()> {
         match self {
             MailboxResp::InvokeDpeCommand(resp) => resp.write_to_mbox(&mut drivers.mbox),
+            MailboxResp::StashMeasurement(resp) => resp.write_to_mbox(&mut drivers.mbox),
             _ => Packet::copy_to_mbox(drivers, self),
         }
     }
@@ -201,6 +202,7 @@ pub struct StashMeasurementReq {
     pub hdr: MailboxReqHeader,
     pub metadata: [u8; 4],
     pub measurement: [u8; 48],
+    pub svn: u32,
 }
 
 #[repr(C)]
@@ -208,6 +210,13 @@ pub struct StashMeasurementReq {
 pub struct StashMeasurementResp {
     pub hdr: MailboxRespHeader,
     pub dpe_result: u32,
+}
+
+impl StashMeasurementResp {
+    fn write_to_mbox(&self, mbox: &mut Mailbox) -> CaliptraResult<()> {
+        mbox.write_response(&self.as_bytes())?;
+        Ok(())
+    }
 }
 
 // DISABLE_ATTESTATION
