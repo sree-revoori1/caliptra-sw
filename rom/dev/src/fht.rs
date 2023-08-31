@@ -37,6 +37,9 @@ pub struct FhtDataStore {
     /// FmcAlias TBS size
     pub fmcalias_tbs_size: u16,
 
+    /// RtAlias TBS size
+    pub rtalias_tbs_size: u16,
+
     /// IDevID public key
     pub idev_pub: Ecc384PubKey,
 }
@@ -167,6 +170,7 @@ pub fn make_fht(env: &RomEnv) -> FirmwareHandoffTable {
         rt_min_svn_dv_hdl: FhtDataStore::rt_min_svn_data_store(),
         ldevid_tbs_size: env.fht_data_store.ldevid_tbs_size,
         fmcalias_tbs_size: env.fht_data_store.fmcalias_tbs_size,
+        rtalias_tbs_size: env.fht_data_store.rtalias_tbs_size,
         ldevid_tbs_addr,
         fmcalias_tbs_addr,
         pcr_log_addr,
